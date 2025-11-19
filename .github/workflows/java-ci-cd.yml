@@ -1,26 +1,54 @@
-name: Java CI/CD Pipeline
+name: Java CI/CD Pipeline (Multi-Stage)
 
 on:
   push:
     branches: ["main"]
   workflow_dispatch:
 
+# --------------------------------------------------------
+# STAGE 1 — BUILD STAGE
+# --------------------------------------------------------
 jobs:
   build:
+    runs-on: ubuntu-latest
+    outputs:
+      jar_name: ${{ steps.jar_name.outputs.jar }}
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: "temurin"
+        java-version: "17"
+
+    - name: Maven Build
+      run: mvn clean package -DskipTests
+
+    - name: Get Built JAR Name
+      id: jar_name
+      run: |
+        JAR=$(ls target/*.jar | head -n 1)
+        echo "jar=$JAR" >> $GITHUB_OUTPUT
+
+# --------------------------------------------------------
+# STAGE 2 — SONARQUBE SCAN
+# --------------------------------------------------------
+  sonar:
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Set up JDK 17
+    - name: Set up Java 17
       uses: actions/setup-java@v4
       with:
-        distribution: 'temurin'
-        java-version: '17'
-
-    - name: Build using Maven
-      run: mvn clean package -DskipTests
+        distribution: "temurin"
+        java-version: "17"
 
     - name: SonarQube Scan
       uses: sonarsource/sonarqube-scan-action@v2
@@ -33,21 +61,45 @@ jobs:
           -Dsonar.sources=src
           -Dsonar.java.binaries=target
 
-    - name: Upload to Nexus RAW Repository
+# --------------------------------------------------------
+# STAGE 3 — NEXUS UPLOAD
+# --------------------------------------------------------
+  nexus:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Download Build Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: build
+
+    - name: Upload JAR to Nexus RAW Repo
       env:
         NEXUS_USER: ${{ secrets.NEXUS_USER }}
         NEXUS_PASS: ${{ secrets.NEXUS_PASS }}
         NEXUS_HOST: ${{ secrets.NEXUS_HOST }}
       run: |
-        echo "Uploading calculator.jar to Nexus RAW..."
+        echo "Uploading JAR to Nexus..."
         curl -v -u "$NEXUS_USER:$NEXUS_PASS" \
           --upload-file target/*.jar \
           "$NEXUS_HOST/repository/java/calculator.jar"
 
+# --------------------------------------------------------
+# STAGE 4 — DOCKER BUILD & PUSH
+# --------------------------------------------------------
+  docker_push:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
     - name: Build Docker Image
       run: docker build -t ${{ secrets.DOCKER_USER }}/calculator-java:latest .
 
-    - name: Login to DockerHub
+    - name: Docker Login
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKER_USER }}
@@ -55,3 +107,30 @@ jobs:
 
     - name: Push Docker Image
       run: docker push ${{ secrets.DOCKER_USER }}/calculator-java:latest
+
+# --------------------------------------------------------
+# STAGE 5 — DEPLOY TO EC2 USING SSH
+# --------------------------------------------------------
+  deploy:
+    needs: docker_push
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy to EC2 via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "Stopping old container..."
+          docker stop calculator-java || true
+          docker rm calculator-java || true
+
+          echo "Pulling latest Docker image..."
+          docker pull ${{ secrets.DOCKER_USER }}/calculator-java:latest
+
+          echo "Starting new container..."
+          docker run -d --name calculator-java -p 8080:8080 ${{ secrets.DOCKER_USER }}/calculator-java:latest
+
+          echo "Deployment Done!"

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.control.*?>
+
+<VBox xmlns="http://javafx.com/javafx"
+      xmlns:fx="http://javafx.com/fxml"
+      fx:controller="com.calculator.ui.CalculatorController"
+      spacing="10" alignment="center">
+
+    <Label text="Java Calculator UI" style="-fx-font-size: 22px;"/>
+
+    <HBox spacing="10">
+        <TextField fx:id="numA" promptText="Enter A"/>
+        <TextField fx:id="numB" promptText="Enter B"/>
+    </HBox>
+
+    <HBox spacing="10">
+        <Button text="Add" onAction="#add"/>
+        <Button text="Sub" onAction="#sub"/>
+        <Button text="Mul" onAction="#mul"/>
+        <Button text="Div" onAction="#div"/>
+    </HBox>
+
+    <Label fx:id="resultLabel" text="Result: " style="-fx-font-size: 18px;"/>
+
+</VBox>

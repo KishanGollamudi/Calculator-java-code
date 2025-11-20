@@ -6,70 +6,105 @@
 
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- SPRING BOOT PARENT -->
-    <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.2.5</version>
-    </parent>
-
     <groupId>com.houari</groupId>
     <artifactId>calculator-web</artifactId>
     <version>1.0.0</version>
-    <packaging>jar</packaging>
 
     <properties>
         <java.version>17</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
+    <!-- ========================================================= -->
+    <!--                   DEPENDENCIES                            -->
+    <!-- ========================================================= -->
     <dependencies>
 
-        <!-- SPRING WEB -->
+        <!-- 🌱 Spring Boot Web (REST API backend) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+            <version>3.2.5</version>
         </dependency>
 
-        <!-- JSON + YAML SUPPORT (Missing dependency FIXED) -->
+        <!-- 🌱 JavaFX (FULL JAVA FRONTEND UI) -->
         <dependency>
-            <groupId>com.fasterxml.jackson.dataformat</groupId>
-            <artifactId>jackson-dataformat-yaml</artifactId>
-            <version>2.17.0</version>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+            <version>20</version>
         </dependency>
 
-        <!-- JUNIT 5 -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+            <version>20</version>
+        </dependency>
+
+        <!-- 🌱 For calling REST API from JavaFX -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+            <version>6.1.5</version>
+        </dependency>
+
+        <!-- Optional (if any tests exist) -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <version>5.9.2</version>
             <scope>test</scope>
         </dependency>
 
     </dependencies>
 
+
+    <!-- ========================================================= -->
+    <!--                      BUILD CONFIG                          -->
+    <!-- ========================================================= -->
     <build>
         <plugins>
 
-            <!-- SPRING BOOT -->
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-
-            <!-- COMPILER -->
+            <!-- ☕ Java Compiler -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
                 <configuration>
                     <source>17</source>
                     <target>17</target>
                 </configuration>
             </plugin>
 
-            <!-- SUREFIRE -->
+            <!-- 🍃 Spring Boot Packaging -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <mainClass>com.calculator.CalculatorApplication</mainClass>
+                </configuration>
+            </plugin>
+
+            <!-- 🎨 JavaFX Plugin (FOR FRONTEND) -->
+            <plugin>
+                <groupId>org.openjfx</groupId>
+                <artifactId>javafx-maven-plugin</artifactId>
+                <version>0.0.8</version>
+                <configuration>
+                    <mainClass>com.calculator.ui.MainUI</mainClass>
+                </configuration>
+            </plugin>
+
+            <!-- Disable UI tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
+                <version>3.1.2</version>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*UITest.java</exclude>
+                    </excludes>
+                </configuration>
             </plugin>
 
         </plugins>

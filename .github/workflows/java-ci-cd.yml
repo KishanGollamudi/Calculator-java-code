@@ -117,7 +117,7 @@ jobs:
   # ------------------------------------------------------------
   # 5) Deploy to EC2 (runs AFTER docker_push)
   # ------------------------------------------------------------
-  deploy:
+    deploy:
     name: 🚀 Deploy to EC2 via SSH
     runs-on: ubuntu-latest
     needs: docker_push
@@ -134,10 +134,19 @@ jobs:
             ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             echo "Connected: $(hostname) - deploying calculator"
 
-            # Stop previous container (if any)
+            # Stop previous container
             sudo docker stop calculator || true
             sudo docker rm calculator || true
 
-            # Pull new image and run (Tomcat-style port 8080)
+            # Pull latest image
             sudo docker pull ${{ secrets.DOCKER_USER }}/calculator:latest
-            sudo
+
+            # Run container
+            sudo docker run -d \
+              --name calculator \
+              -p 8080:8080 \
+              ${{ secrets.DOCKER_USER }}/calculator:latest
+
+            echo "Deployment successful!"
+EOF
+

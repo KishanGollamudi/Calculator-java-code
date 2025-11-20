@@ -1,137 +1,138 @@
-name: 🚀 Java DevOps CI/CD Pipeline
+name: Java CI/CD Pipeline
 
 on:
   push:
     branches: [ "master" ]
-  pull_request:
 
 jobs:
-  # ------------------------------------------------------------
-  # 1️⃣ BUILD
-  # ------------------------------------------------------------
+
+  # ----------------------------------------
+  # 🧱 1) Build with Maven
+  # ----------------------------------------
   build:
-    name: 🏗️ Build (Maven)
     runs-on: ubuntu-latest
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: ☕ Setup Java 17
+      - name: 🏗️ Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🛠️ Maven Clean Package (Skip UI Tests)
-        run: mvn -B clean package -DskipTests=true
+      - name: 🔨 Build Project
+        run: mvn -B package --file pom.xml
 
-      - name: 📦 Upload JAR Artifact
+      - name: 📦 Upload Artifact (JAR)
         uses: actions/upload-artifact@v4
         with:
           name: calculator-jar
           path: target/*.jar
 
-  # ------------------------------------------------------------
-  # 2️⃣ SONAR (must run AFTER build)
-  # ------------------------------------------------------------
+  # ----------------------------------------
+  # 🔍 2) SonarQube Scan (Maven Plugin)
+  # ----------------------------------------
   sonar:
-    name: 🔍 SonarQube Analysis
-    runs-on: ubuntu-latest
     needs: build
+    runs-on: ubuntu-latest
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: ☕ Setup Java 17
+      - name: ☕ Install Java 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 🔎 SonarQube Scan (Maven plugin)
+      - name: 🔍 SonarQube Scan
         run: |
-          mvn -B verify sonar:sonar \
-            -DskipTests=true \
-            -Dsonar.projectKey=calculator \
-            -Dsonar.projectName=CalculatorApp \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+          mvn clean verify sonar:sonar \
+          -Dsonar.projectKey=calculator \
+          -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }} \
+          -Dsonar.java.binaries=target
 
-  # ------------------------------------------------------------
-  # 3️⃣ NEXUS UPLOAD (must run AFTER sonar)
-  # ------------------------------------------------------------
-  nexus:
-    name: 📤 Upload Artifact to Nexus (RAW)
+  # ----------------------------------------
+  # 🗃️ 3) Upload JAR to Nexus RAW
+  # ----------------------------------------
+  nexus_upload:
+    needs: build
     runs-on: ubuntu-latest
-    needs: sonar
+
     steps:
       - name: 📥 Download JAR Artifact
         uses: actions/download-artifact@v4
         with:
           name: calculator-jar
+          path: target/
 
-      - name: 📤 Upload to Nexus RAW Repository
+      - name: 🚀 Upload JAR to Nexus RAW Repo
         run: |
-          FILE=$(ls *.jar)
-          echo "Uploading: $FILE"
-          curl -v -u "${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }}" \
-            --upload-file "$FILE" \
-            "${{ secrets.NEXUS_HOST }}/repository/java-raw/$FILE"
+          FILE=$(ls target/*.jar)
+          BASENAME=$(basename $FILE)
+          echo "Uploading $BASENAME to Nexus RAW..."
 
-  # ------------------------------------------------------------
-  # 4️⃣ DOCKER BUILD & PUSH (must run AFTER nexus)
-  # ------------------------------------------------------------
-  docker:
-    name: 🐳 Docker Build & Push
+          curl -v -u ${{ secrets.NEXUS_USERNAME }}:${{ secrets.NEXUS_PASSWORD }} \
+            --upload-file "$FILE" \
+            "http://54.234.17.60:8081/repository/java-raw/$BASENAME"
+
+  # ----------------------------------------
+  # 🐳 4) Docker Build & Push to DockerHub
+  # ----------------------------------------
+  docker_push:
+    needs: nexus_upload
     runs-on: ubuntu-latest
-    needs: nexus
+
     steps:
       - name: 📥 Checkout Code
         uses: actions/checkout@v4
 
-      - name: 🔽 Download JAR Artifact (for Docker context if needed)
-        uses: actions/download-artifact@v4
-        with:
-          name: calculator-jar
-          path: target/
-
-      - name: 🔐 Login to DockerHub
+      - name: 🔑 DockerHub Login
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PASS }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: 🛠️ Build Docker Image
-        run: docker build -t ${{ secrets.DOCKER_USER }}/calculator:latest .
+      - name: 🐳 Build Docker Image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/calculator:latest .
 
-      - name: ☁️ Push Docker Image
-        run: docker push ${{ secrets.DOCKER_USER }}/calculator:latest
+      - name: 📤 Push Docker Image
+        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/calculator:latest
 
-  # ------------------------------------------------------------
-  # 5️⃣ DEPLOY (must run AFTER docker)
-  # ------------------------------------------------------------
+  # ----------------------------------------
+  # 🚀 5) Deploy to EC2 via SSH
+  # ----------------------------------------
   deploy:
-    name: 🚀 Deploy to EC2
+    needs: docker_push
     runs-on: ubuntu-latest
-    needs: docker
+
     steps:
-      - name: 🔑 Setup SSH Key
+      - name: 🔐 Load SSH Key
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
           chmod 600 key.pem
 
-      - name: 🚀 SSH -> Deploy Container on EC2
+      - name: 🚀 Deploy on EC2
         run: |
-          ssh -o StrictHostKeyChecking=no -i key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
-            echo "Stopping old container..."
-            sudo docker stop calculator || true
-            sudo docker rm calculator || true
+          ssh -o StrictHostKeyChecking=no -i key.pem \
+            ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
 
-            echo "Pulling latest image..."
-            sudo docker pull ${{ secrets.DOCKER_USER }}/calculator:latest
+          echo "--- Connected to EC2 ---"
 
-            echo "Running new container on port 5005..."
-            sudo docker run -d --name calculator -p 5005:5005 ${{ secrets.DOCKER_USER }}/calculator:latest
+          # Stop old container
+          docker stop calculator || true
+          docker rm calculator || true
 
-            echo "Deployment complete!"
+          # Pull latest image
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/calculator:latest
+
+          # Run container on Tomcat-style port 8080
+          docker run -d --name calculator -p 8080:8080 \
+            ${{ secrets.DOCKERHUB_USERNAME }}/calculator:latest
+
+          echo "--- Deployment Completed ---"
           EOF

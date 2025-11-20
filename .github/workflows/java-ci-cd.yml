@@ -1,136 +1,141 @@
-name: Java CI/CD Pipeline (Multi-Stage)
+name: Java CI-CD Pipeline
 
 on:
   push:
-    branches: ["main"]
-  workflow_dispatch:
+    branches: [ "master" ]
 
-# --------------------------------------------------------
-# STAGE 1 — BUILD STAGE
-# --------------------------------------------------------
 jobs:
+
+  # -----------------------------
+  # 1. CHECKOUT JOB
+  # -----------------------------
+  checkout:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+
+  # -----------------------------
+  # 2. BUILD JOB
+  # -----------------------------
   build:
     runs-on: ubuntu-latest
-    outputs:
-      jar_name: ${{ steps.jar_name.outputs.jar }}
+    needs: checkout
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Java 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: "temurin"
-        java-version: "17"
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'maven'
 
-    - name: Maven Build
-      run: mvn clean package -DskipTests
+      - name: Maven Build
+        run: mvn clean install -DskipTests
 
-    - name: Get Built JAR Name
-      id: jar_name
-      run: |
-        JAR=$(ls target/*.jar | head -n 1)
-        echo "jar=$JAR" >> $GITHUB_OUTPUT
 
-# --------------------------------------------------------
-# STAGE 2 — SONARQUBE SCAN
-# --------------------------------------------------------
+  # -----------------------------
+  # 3. SONARQUBE JOB
+  # -----------------------------
   sonar:
-    needs: build
     runs-on: ubuntu-latest
+    needs: build
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Java 17
-      uses: actions/setup-java@v4
-      with:
-        distribution: "temurin"
-        java-version: "17"
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-    - name: SonarQube Scan
-      uses: sonarsource/sonarqube-scan-action@v2
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      with:
-        args: >
-          -Dsonar.projectKey=calculator
-          -Dsonar.sources=src
-          -Dsonar.java.binaries=target
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=calculator
+            -Dsonar.projectName=CalculatorApp
+            -Dsonar.java.binaries=target
 
-# --------------------------------------------------------
-# STAGE 3 — NEXUS UPLOAD
-# --------------------------------------------------------
+
+  # -----------------------------
+  # 4. UPLOAD ARTIFACT TO NEXUS
+  # -----------------------------
   nexus:
-    needs: build
     runs-on: ubuntu-latest
+    needs: sonar
 
     steps:
-    - name: Download Build Artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: build
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Upload JAR to Nexus RAW Repo
-      env:
-        NEXUS_USER: ${{ secrets.NEXUS_USER }}
-        NEXUS_PASS: ${{ secrets.NEXUS_PASS }}
-        NEXUS_HOST: ${{ secrets.NEXUS_HOST }}
-      run: |
-        echo "Uploading JAR to Nexus..."
-        curl -v -u "$NEXUS_USER:$NEXUS_PASS" \
-          --upload-file target/*.jar \
-          "$NEXUS_HOST/repository/java/calculator.jar"
+      - name: Create Artifact Tar
+        run: |
+          tar -czf calculator.tar.gz target/
 
-# --------------------------------------------------------
-# STAGE 4 — DOCKER BUILD & PUSH
-# --------------------------------------------------------
-  docker_push:
-    needs: build
+      - name: Upload to Nexus RAW Repo
+        run: |
+          curl -v -u "${{ secrets.NEXUS_USER }}:${{ secrets.NEXUS_PASS }}" \
+          --upload-file calculator.tar.gz \
+          "${{ secrets.NEXUS_HOST }}/repository/java-raw/calculator.tar.gz"
+
+
+  # -----------------------------
+  # 5. DOCKER BUILD STAGE
+  # -----------------------------
+  docker-build:
     runs-on: ubuntu-latest
+    needs: nexus
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Build Docker Image
-      run: docker build -t ${{ secrets.DOCKER_USER }}/calculator-java:latest .
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ secrets.DOCKER_USER }}/calculator-java:latest .
 
-    - name: Docker Login
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKER_USER }}
-        password: ${{ secrets.DOCKER_PASS }}
+      - name: Login to DockerHub
+        run: echo "${{ secrets.DOCKER_PASS }}" | docker login -u "${{ secrets.DOCKER_USER }}" --password-stdin
 
-    - name: Push Docker Image
-      run: docker push ${{ secrets.DOCKER_USER }}/calculator-java:latest
+      - name: Push Docker Image
+        run: docker push ${{ secrets.DOCKER_USER }}/calculator-java:latest
 
-# --------------------------------------------------------
-# STAGE 5 — DEPLOY TO EC2 USING SSH
-# --------------------------------------------------------
+
+  # -----------------------------
+  # 6. DEPLOY TO EC2 USING SSH
+  # -----------------------------
   deploy:
-    needs: docker_push
     runs-on: ubuntu-latest
+    needs: docker-build
 
     steps:
-    - name: Deploy to EC2 via SSH
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ${{ secrets.EC2_USER }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          echo "Stopping old container..."
-          docker stop calculator-java || true
-          docker rm calculator-java || true
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "Stopping old container..."
+            docker stop calculator-java || true
+            docker rm calculator-java || true
 
-          echo "Pulling latest Docker image..."
-          docker pull ${{ secrets.DOCKER_USER }}/calculator-java:latest
+            echo "Pulling latest image..."
+            docker pull ${{ secrets.DOCKER_USER }}/calculator-java:latest
 
-          echo "Starting new container..."
-          docker run -d --name calculator-java -p 8080:8080 ${{ secrets.DOCKER_USER }}/calculator-java:latest
+            echo "Running container on port 8080..."
+            docker run -d --name calculator-java -p 8080:8080 \
+              ${{ secrets.DOCKER_USER }}/calculator-java:latest
 
-          echo "Deployment Done!"
+            echo "Deployment completed!"

@@ -14,11 +14,9 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
-        <!-- Dependencies -->
+        <!-- Dependency versions -->
         <jackson-dataformat-yaml.version>2.14.2</jackson-dataformat-yaml.version>
         <junit-jupiter-params.version>5.9.2</junit-jupiter-params.version>
-
-        <!-- Enable JUnit 5 platform -->
         <maven.surefire.version>3.1.2</maven.surefire.version>
     </properties>
 
@@ -35,7 +33,22 @@
                 </configuration>
             </plugin>
 
-            <!-- Surefire Plugin with GUI Test Excluded -->
+            <!-- Build EXECUTABLE JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <!-- Your REAL main class -->
+                            <mainClass>com.houari.CalculatorApp</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!-- JUnit5 (GUI test excluded for CI) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -43,7 +56,7 @@
                 <configuration>
                     <useModulePath>false</useModulePath>
 
-                    <!-- IMPORTANT: Prevent HeadlessException on CI -->
+                    <!-- Prevent GUI exception on GitHub Actions -->
                     <excludes>
                         <exclude>**/CalculatorUITest.java</exclude>
                     </excludes>
@@ -70,7 +83,7 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- REQUIRED for JUnit 5 to run -->
+        <!-- JUnit 5 Engine -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>

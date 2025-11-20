@@ -1,13 +1,8 @@
-FROM eclipse-temurin:17-jdk-alpine
-
-# Set working directory
+FROM openjdk:17-jdk-slim
 WORKDIR /app
 
-# Copy the JAR produced by GitHub Actions
-COPY target/*.jar app.jar
+COPY target/calculator-web-1.0.0.jar app.jar
 
-# Expose port 5005
-EXPOSE 5005
+EXPOSE 8080
 
-# Run the JAR
 ENTRYPOINT ["java", "-jar", "app.jar"]
